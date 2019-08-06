@@ -17,7 +17,7 @@ func getCloneURLandPath(repo *github.Repository, accesstoken string) (string, st
 
 	path := strings.Replace(githubCloneURL, "https://github.com/", "", -1)
 	cloneURL := fmt.Sprintf("https://%s@github.com/%s", accesstoken, path)
-	return cloneURL, strings.Replace(path, ".git", "", -1) // @TODO this is not perfect (just trim the trailing .git)
+	return cloneURL, path[:len(path)-4] // @TODO this is not perfect (just trim the trailing .git)
 }
 
 func main() {
@@ -73,18 +73,44 @@ func main() {
 
 	for _, repo := range repos {
 		gitURL, path := getCloneURLandPath(repo, accessToken)
-		log.Printf("[+] Cloning\t%s\n", path)
+		log.Printf("[+] Syncing\t%s\n", path)
 
 		// Try to clone the repo
 		_, err := git.PlainClone(backupPath+path, false, &git.CloneOptions{
 			URL: gitURL,
 		})
 
-		if err != nil {
-			log.Printf("[!]Failed to clone repo\t%s\n", path)
-		}
+		if err == git.ErrRepositoryAlreadyExists {
+			// Try to pull changes
+			repo, err := git.PlainOpen(backupPath + path)
+			if err != nil {
+				log.Printf("[!] Failed to open repo\t%s\n", path)
+				continue
+			}
+			err = repo.Fetch(&git.FetchOptions{
+				RemoteName: "origin",
+			})
 
-		log.Printf("[+] Cloned\t%s\n", path)
+			// Merge master branch
+			// workTree, err := repo.Worktree()
+			// workTree.Pull(&git.PullOptions{
+			// 	RemoteName: "origin",
+			// })
+			if err == git.NoErrAlreadyUpToDate {
+				log.Printf("[+] Already up to date\t%s\n", path)
+			} else if err != nil {
+				log.Printf("[!] Failed to fetch repo\t%s\n", path)
+				fmt.Println(err)
+				continue
+			} else {
+				log.Printf("[+] Fetched remote\t%s\n", path)
+				continue
+			}
+		} else if err != nil {
+			log.Printf("[!] Failed to clone repo\t%s\n", path)
+		} else {
+			log.Printf("[+] Cloned\t%s\n", path)
+		}
 	}
 
 }
